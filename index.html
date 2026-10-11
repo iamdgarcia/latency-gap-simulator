@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Latency Gap Simulator 🪜 — where the milliseconds go in a voice-agent turn</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#171c24; --line:#2a3242; --fg:#e8ecf3; --dim:#8b95a7;
+    --accent:#ffb02e; --accent2:#ff5d47; --good:#4ade80; --stage:#3b82f6; --stage2:#8b5cf6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:1.45rem;margin:.2rem 0 .2rem}
+  .sub{color:var(--dim);margin:0 0 14px}
+  .topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  button{background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:8px;
+    padding:7px 12px;cursor:pointer;font-size:.86rem}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#1a1206;font-weight:600}
+  button.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
+  .total{font-variant-numeric:tabular-nums;font-weight:800;font-size:1.05rem;
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px}
+  .total b{color:var(--accent)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  h2{font-size:.95rem;margin:0 0 10px;color:var(--accent)}
+  .slider{margin:9px 0}
+  .slider label{display:flex;justify-content:space-between;font-size:.85rem;color:var(--dim)}
+  .slider label output{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  /* waterfall */
+  .wf{display:flex;flex-direction:column;gap:4px}
+  .bar-row{display:grid;grid-template-columns:150px 1fr 64px;gap:8px;align-items:center;font-size:.8rem}
+  .bar-row .name{color:var(--dim);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .track{height:18px;background:#0b0e13;border-radius:4px;position:relative;overflow:hidden}
+  .fill{height:100%;border-radius:4px;background:var(--stage);min-width:2px}
+  .bar-row .ms{font-variant-numeric:tabular-nums;color:var(--fg);text-align:right}
+  .lane2{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
+  .lane2 h3{font-size:.82rem;margin:0 0 6px;color:var(--accent2)}
+  .waste{color:var(--accent2);font-weight:700}
+  .note{font-size:.78rem;color:var(--dim);margin-top:8px}
+  /* presets */
+  .presets .prow{display:flex;justify-content:space-between;font-size:.85rem;padding:5px 2px;
+    border-bottom:1px dashed var(--line);cursor:pointer;border-radius:6px}
+  .presets .prow:hover{background:#1d242f}
+  .presets .prow.active{background:#232b38}
+  .pbar{height:8px;border-radius:3px;background:linear-gradient(90deg,var(--good),var(--accent),var(--accent2));margin-top:3px}
+  /* cards */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  @media(max-width:760px){.cards{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px;font-size:.84rem}
+  .card b{color:var(--accent)}
+  .card .rng{color:var(--dim);font-size:.76rem;margin-top:4px}
+  footer{margin-top:26px;color:var(--dim);font-size:.8rem;text-align:center}
+  footer a{color:var(--accent)}
+  .legend{display:flex;gap:14px;font-size:.75rem;color:var(--dim);margin:2px 0 10px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🪜 Voice Latency Gap Simulator</h1>
+  <p class="sub" data-i18n="sub">Where the milliseconds go in one voice-agent turn — user stops talking → first bot audio. Teaching approximation, not a benchmark.</p>
+
+  <div class="topbar">
+    <span class="total" data-i18n-html="e2e">E2E: <b id="total">—</b> ms</span>
+    <button id="bargeinBtn">👂 <span data-i18n="bargein">Barge-in: OFF</span></button>
+    <button id="langBtn">ES / EN</button>
+    <span style="flex:1"></span>
+    <button class="primary" data-i18n="reset">Reset</button>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2 data-i18n="stages">Turn pipeline stages</h2>
+      <div class="legend"><span><span class="dot" style="background:var(--stage)"></span><span data-i18n="fixed">fixed</span></span>
+        <span><span class="dot" style="background:var(--stage2)"></span><span data-i18n="tunable">tunable</span></span></div>
+      <div class="wf" id="wf"></div>
+      <div class="lane2" id="lane2" hidden>
+        <h3 data-i18n="bargeinLane">⚡ Barge-in: user interrupts 1.5 s into the bot's answer</h3>
+        <div class="wf" id="wf2"></div>
+        <p class="note"><span data-i18n="wasted">Bot audio wasted before cutoff ≈</span> <b class="waste" id="waste">—</b> ms
+          <span class="note" data-i18n="wasteWhy">— grows with hangover: the echo-suppressor needs the tail gone before the user can take the floor.</span></p>
+      </div>
+      <p class="note" data-i18n="approx">Model: frame = one 32 ms VAD window; tail = the fixed 160 ms of speech after the last voiced frame (kept for naturalness); hangover + min-silence gate the endpoint; then ASR commits, packets travel, the LLM thinks, audio comes back. Real stacks differ (streaming codecs, speculative TTS) — the shape, not the exact ms, is the lesson.</p>
+    </div>
+
+    <div>
+      <div class="panel" style="margin-bottom:12px">
+        <h2 data-i18n="controls">Controls</h2>
+        <div id="sliders"></div>
+      </div>
+      <div class="panel presets">
+        <h2 data-i18n="presets">Presets (click to load · ms)</h2>
+        <div id="presetList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <footer>
+    <span data-i18n="footer">Built by</span> <a href="https://huggingface.co/iamdgarcia">iamdgarcia</a> ·
+    <a href="https://github.com/iamdgarcia/latency-gap-simulator">GitHub</a> ·
+    <span data-i18n="research">Latency thinking from “Latency floors for cascaded voice agents” — D. García Peña (research)</span>
+  </footer>
+</div>
+
+<script>
+/* ---------- pure compute core (no DOM) — also used by the node self-check ---------- */
+window.GapSim = (() => {
+  const PRESETS = {
+    "Robust":          { hangover:700, minSpeech:350, asrFinalize:300, llmTtft: 600, ttsChunk:150, rtt:100 },
+    "Snappy":          { hangover:200, minSpeech:150, asrFinalize:100, llmTtft: 200, ttsChunk: 60, rtt: 40 },
+    "Cascaded big-LLM":{ hangover:400, minSpeech:250, asrFinalize:200, llmTtft:1200, ttsChunk:300, rtt: 60 },
+    "S2S duplex":      { hangover:  0, minSpeech:250, asrFinalize:  0, llmTtft: 300, ttsChunk:  0, rtt: 80 },
+  };
+  const FIXED = { frame:32, tail:160 };   // one VAD frame + natural speech tail
+
+  // Waterfall of one turn: [speech tail -> hangover -> min-silence -> ASR finalize -> uplink -> LLM TTFT -> downlink -> TTS first chunk]
+  function stages(v) {
+    return [
+      ["tail",        FIXED.tail],
+      ["hangover",    v.hangover],
+      ["minSilence",  v.minSpeech],
+      ["asr",         v.asrFinalize],
+      ["uplink",      v.rtt],
+      ["llm",         v.llmTtft],
+      ["downlink",    v.rtt],
+      ["tts",         v.ttsChunk],
+    ];
+  }
+  function total(v) { return stages(v).reduce((s, [, ms]) => s + ms, 0); }
+  // Barge-in waste approximation: the stack keeps playing while hangover/min-speech
+  // machinery drains + one downlink hop after the user's cutoff is heard.
+  function waste(v) { return v.minSpeech + Math.round(v.hangover / 2) + v.rtt; }
+  return { PRESETS, FIXED, stages, total, waste, DEFAULTS: PRESETS["Cascaded big-LLM"] };
+})();
+
+/* ---------- i18n ---------- */
+const I18N = {
+  en: {
+    sub:"Where the milliseconds go in one voice-agent turn — user stops talking → first bot audio. Teaching approximation, not a benchmark.",
+    e2e:'E2E: <b id="total">—</b> ms', bargein:"Barge-in: OFF", bargeinOn:"Barge-in: ON",
+    reset:"Reset", stages:"Turn pipeline stages", fixed:"fixed", tunable:"tunable",
+    bargeinLane:"⚡ Barge-in: user interrupts 1.5 s into the bot's answer",
+    wasted:"Bot audio wasted before cutoff ≈",
+    wasteWhy:"— grows with hangover: the echo suppressor needs the tail gone before the user can take the floor.",
+    approx:"Model: frame = one 32 ms VAD window; tail = the fixed 160 ms of speech after the last voiced frame (kept for naturalness); hangover + min-silence gate the endpoint; then ASR commits, packets travel, the LLM thinks, audio comes back. Real stacks differ (streaming codecs, speculative TTS) — the shape, not the exact ms, is the lesson.",
+    controls:"Controls", presets:"Presets (click to load · ms)",
+    footer:"Built by", research:'Latency thinking from “Latency floors for cascaded voice agents” — D. García Peña (research)',
+    cards:{
+      tail:["Speech tail","~160 ms of audio after the last voiced frame — kept so words don't sound clipped at boundaries.","120–200 ms"],
+      hangover:["Endpointing hangover","Silence the VAD must observe before declaring end-of-turn. The classic accuracy/latency trade-off: higher = fewer false cuts mid-phrase, but every silent ms is added to E2E.","200–700 ms"],
+      minSilence:["Min-speech / silence gate","Minimum silence run required to confirm the pause is real and not a word boundary. Guards against chopping at short intra-sentence pauses.","150–350 ms"],
+      asr:["ASR finalize","Partial transcript → final commit. Streaming ASR keeps this small; batch or re-scoring models push it up.","0–300 ms"],
+      uplink:["Uplink RTT","Audio/context packets travelling up. Pays once per hop.","20–100 ms"],
+      llm:["LLM time-to-first-token","The big one for cascaded stacks. Small decision models (the 'Jev wave') or S2S duplex models cut this to a whisper.","100–1200 ms"],
+      downlink:["Downlink RTT","First audio packets travelling back down to the device.","20–100 ms"],
+      tts:["TTS first audio chunk","Time to synthesize the first playable chunk — text must reach the synthesizer first. Streaming TTS pipelines overlap this with LLM decoding.","50–300 ms"],
+    },
+  },
+  es: {
+    sub:"A dónde van los milisegundos en un turno de agente de voz — el usuario calla → primer audio del bot. Aproximación didáctica, no un benchmark.",
+    e2e:'E2E: <b id="total">—</b> ms', bargein:"Interrupción: OFF", bargeinOn:"Interrupción: ON",
+    reset:"Reiniciar", stages:"Etapas del turno", fixed:"fijo", tunable:"ajustable",
+    bargeinLane:"⚡ Interrupción: el usuario corta al bot a 1,5 s de su respuesta",
+    wasted:"Audio del bot desperdiciado ≈",
+    wasteWhy:"— crece con el hangover: el supresor de eco necesita que la cola desaparezca antes de ceder el turno.",
+    approx:"Modelo: frame = ventana VAD de 32 ms; cola = 160 ms fijos de voz tras el último frame sonoro (naturalidad); hangover + silencio mínimo deciden el endpoint; luego el ASR confirma, los paquetes viajan, el LLM piensa y el audio vuelve. Los sistemas reales varían (codecs en streaming, TTS especulativo) — la lección es la forma, no los ms exactos.",
+    controls:"Controles", presets:"Presets (clic para cargar · ms)",
+    footer:"Construido por", research:'Pensamiento de latencia de “Latency floors for cascaded voice agents” — D. García Peña (investigación)',
+    cards:{
+      tail:["Cola de voz","~160 ms de audio tras el último frame sonoro — se conservan para no cortar palabras.","120–200 ms"],
+      hangover:["Hangover de endpointing","Silencio que el VAD exige antes de dar el turno por terminado. El trade-off clásico: más alto = menos cortes falsos, pero cada ms de silencio se suma al E2E.","200–700 ms"],
+      minSilence:["Umbral de silencio mínimo","Silencio mínimo consecutivo para confirmar que la pausa es real y no una frontera entre palabras.","150–350 ms"],
+      as:["Confirmación ASR","Transcripción parcial → final. El ASR en streaming lo mantiene pequeño; el por lotes o con re-scoring lo sube.","0–300 ms"],
+      uplink:["RTT de subida","Paquetes de audio/contexto hacia arriba. Se paga una vez por salto.","20–100 ms"],
+      llm:["LLM hasta el primer token","El grande en stacks en cascada. Los modelos de decisión pequeños (la 'oleada Jev') o los S2S dúplex lo reducen a un susurro.","100–1200 ms"],
+      downlink:["RTT de bajada","Primeros paquetes de audio de vuelta al dispositivo.","20–100 ms"],
+      tts:["TTS primer chunk","Tiempo hasta el primer trozo de audio reproducible — el texto debe llegar antes al sintetizador. El TTS en streaming lo solapa con la decodificación del LLM.","50–300 ms"],
+    },
+  },
+};
+let LANG = "en";
+
+/* ---------- UI wiring ---------- */
+const SLIDERS = [
+  ["hangover",   "Endpointing hangover",    "silence threshold (ms)", 100, 1500, 400],
+  ["minSpeech",  "Min-speech / silence gate","ms",                    100,  600, 250],
+  ["asrFinalize","ASR finalize",            "partial → final (ms)",     0,  800, 200],
+  ["llmTtft",    "LLM time-to-first-token", "ms",                      50, 2000, 350],
+  ["ttsChunk",   "TTS first audio chunk",   "ms",                      20,  500,  80],
+  ["rtt",        "Network RTT per hop",     "applied twice (ms)",       0,  400,  60],
+];
+let state = { ...window.GapSim.DEFAULTS };
+let bargein = false;
+
+const $ = (s) => document.querySelector(s);
+
+function renderSliders() {
+  const box = $("#sliders");
+  box.innerHTML = "";
+  for (const [key, , unit, min, max] of SLIDERS) {
+    const div = document.createElement("div");
+    div.className = "slider";
+    div.innerHTML = `<label><span>${key}${unit ? ' <span style="opacity:.6">· ' + unit + "</span>" : ""}</span>
+      <output>${state[key]}</output></label>
+      <input type="range" min="${min}" max="${max}" value="${state[key]}" data-key="${key}">`;
+    div.querySelector("input").addEventListener("input", (e) => {
+      state[key] = +e.target.value;
+      div.querySelector("output").textContent = state[key];
+      renderAll();
+    });
+    box.appendChild(div);
+  }
+}
+
+function renderWaterfall(target, values, accent) {
+  const t = window.GapSim.total(values);
+  const wf = target; wf.innerHTML = "";
+  for (const [name, ms] of window.GapSim.stages(values)) {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    const pct = t ? (ms / t) * 100 : 0;
+    row.innerHTML = `<span class="name">${t0(name)}</span>
+      <span class="track"><span class="fill" style="width:${pct.toFixed(1)}%;${accent ? "background:var(--accent2)" : ""}"></span></span>
+      <span class="ms">${ms}</span>`;
+    wf.appendChild(row);
+  }
+}
+const STAGE_KEYS = { tail:"tail", hangover:"hangover", minSilence:"minSilence", asr:"asr", uplink:"uplink", llm:"llm", downlink:"downlink", tts:"tts" };
+const t0 = (k) => (I18N[LANG].cards[STAGE_KEYS[k]] || [k])[0];
+
+function renderPresets() {
+  const box = $("#presetList");
+  box.innerHTML = "";
+  const totals = Object.entries(window.GapSim.PRESETS)
+    .map(([n, v]) => [n, window.GapSim.total(v)]).sort((a, b) => a[1] - b[1]);
+  const max = totals[totals.length - 1][1] || 1;
+  for (const [n, ms] of totals) {
+    const row = document.createElement("div");
+    row.className = "prow";
+    row.innerHTML = `<span>${n}</span><b>${ms} ms</b><span class="pbar" style="grid-column:1/3;width:${(ms / max * 100).toFixed(0)}%"></span>`;
+    if (JSON.stringify(window.GapSim.PRESETS[n]) === JSON.stringify(state)) row.classList.add("active");
+    row.addEventListener("click", () => {
+      state = { ...window.GapSim.PRESETS[n] };
+      renderSliders(); renderAll();
+    });
+    box.appendChild(row);
+  }
+}
+
+function renderCards() {
+  const c = I18N[LANG].cards;
+  const order = ["tail","hangover","minSilence","asr","llm","uplink","downlink","tts"];
+  $("#cards").innerHTML = order.map((k) =>
+    `<div class="card"><b>${c[k][0]}</b> — ${c[k][1]}<div class="rng">typical: ${c[k][2]}</div></div>`).join("");
+}
+
+function renderAll() {
+  renderWaterfall($("#wf"), state, false);
+  $("#total").textContent = window.GapSim.total(state);
+  const on = bargein;
+  $("#lane2").hidden = !on;
+  $("#bargeinBtn").classList.toggle("on", on);
+  $("#bargeinBtn").querySelector("span").textContent = on ? I18N[LANG].bargeinOn : I18N[LANG].bargein;
+  if (on) {
+    renderWaterfall($("#wf2"), state, true);
+    $("#waste").textContent = window.GapSim.waste(state);
+  }
+  renderPresets();
+  renderCards();
+}
+
+function applyLang() {
+  const d = I18N[LANG];
+  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = d[el.dataset.i18n] ?? el.textContent; });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => { el.innerHTML = d[el.dataset.i18nHtml] ?? el.innerHTML; });
+  renderAll();
+}
+
+$("#bargeinBtn").addEventListener("click", () => { bargein = !bargein; renderAll(); });
+$("#langBtn").addEventListener("click", () => { LANG = LANG === "en" ? "es" : "en"; applyLang(); });
+document.querySelector("button.primary").addEventListener("click", () => {
+  state = { ...window.GapSim.DEFAULTS }; renderSliders(); renderAll();
+});
+
+renderSliders();
+applyLang();
+</script>
+</body>
+</html>
