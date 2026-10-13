@@ -35,3 +35,5 @@ half-duplex echo guards, speculative TTS). The barge-in waste model is
 KPI & latency thinking from *Latency floors for cascaded voice agents — D. García Peña (research)*.
 
 Built by [iamdgarcia](https://huggingface.co/iamdgarcia) — realtime voice agent engineering.
+
+📖 Full writeup: [https://iamdgarcia.medium.com/watching-your-voice-agent-think-three-instruments-you-can-open-in-a-browser-tab-f7ed16ec2a2a](https://iamdgarcia.medium.com/watching-your-voice-agent-think-three-instruments-you-can-open-in-a-browser-tab-f7ed16ec2a2a) — *Watching your voice agent think* (D. García Peña).
